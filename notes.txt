@@ -1,0 +1,902 @@
+
+Notes for setting up a RPi 3B with RetroPie 4.7.1 & a PI2SCART hat
+
+
+
+RetroPie Download
+https://github.com/RetroPie/RetroPie-Setup/releases/download/4.7.1/retropie-buster-4.7.1-rpi2_3.img.gz
+
+
+
+Backup / write SD card on OS X
+
+diskutil list # figure out device
+sudo dd if=/dev/rdisk3 of=rpi_retropie471_pi2scart_backup.img bs=1m
+
+raw disk (rdisk) and 1MB block size for major speed improvement.
+CTRL+T for progress. Unmount boot in diskutil first.
+
+How to mount a disk image under Linux in case some files need to be retrieved from it
+https://raspberrypi.stackexchange.com/a/13138
+fdisk -l whatever.img
+mount -v -r -o offset=272629760 -t ext4 whatever.img /mnt/img/two
+(offset is start * sector size)
+
+
+
+SSH setup
+
+Put 'ssh' file in boot partition to enable SSH headless
+default user: pi, password: raspberry
+Put public key (~/.ssh/id_rsa.pub) in ~/.ssh/authorized_keys to enable key based auth
+Also see https://www.raspberrypi.org/documentation/remote-access/ssh/
+
+
+
+/boot/config.txt Settings for PI2SCART
+
+# pi2scart
+disable_audio_dither=1
+dtparam=audio=on
+dtoverlay=vga666
+enable_dpi_lcd=1
+display_default_lcd=1
+dpi_group=2
+dpi_mode=87
+#standard
+#hdmi_timings=320 1 16 30 34 240 1 2 3 22 0 0 0 60 0 6400000 1 #240p
+#centered
+hdmi_timings=320 1 11 30 39 240 1 7 3 17 0 0 0 60 0 6400000 1 #240p
+#320-high-res
+#hdmi_timings 1920 1 152 247 280 240 1 3 7 12 0 0 0 60 0 40860000 1
+disable_overscan=1
+
+https://github.com/crtpi/CRTPi-RGB/blob/master/RGB-to_boot/config.txt
+http://pi2jamma.info/pi2scart#installation
+https://www.raspberrypi.org/documentation/hardware/raspberrypi/dpi/README.md
+
+
+
+Overclocking
+
+Helps a lot with arcade games etc. pushing the limits of the Pi hardware and reduces
+stuttering, audio glitches and enables lag reduction features such as run-ahead to be
+enabled. Only CPU/RAM overclocking, GPU has little impact on most emulators.
+
+arm_freq=1400
+#gpu_freq=500
+sdram_freq=500
+sdram_schmoo=0x02000020
+over_voltage=4
+over_voltage_sdram=4
+
+Increment CPU frequency in 50Mhz steps, check stability under full load. CPU might
+throttle, but system should not crash. In case of kernel panics or full crashes, try
+increasing voltage. Keep monitoring temperature, CPU frequency & throttling bits to see if
+the overclock was successful.
+
+https://www.raspberrypi.org/documentation/configuration/config-txt/overclocking.md
+https://retropie.org.uk/docs/Overclocking/
+https://elinux.org/RPiconfig#Overclock_stability_test
+https://linux.die.net/man/8/memtester
+
+
+
+CPU Governor
+
+The CPU governor determines the throttling behavior of the CPU. Setting it to performance
+mode can improve emulation performance in some circumstances.
+
+Determine current setting:
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+Switch setting:
+echo "ondemand" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+echo "performance" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+
+Instruct RetroPie's runcommand script to change to a specific setting when retroarch is
+running ad later restore it to whatever was the default:
+
+sudo ~/RetroPie-Setup/retropie_setup.sh
+Configuration / tools->runcommand->CPU configuration
+
+https://retropie.org.uk/docs/Runcommand/#configuring-runcommand
+
+RetroPie governor settings are stored here:
+/opt/retropie/configs/all/runcommand.cfg 
+
+
+
+Increase USB polling rate for reduced controller latency
+
+Add usbhid.jspoll=1 at end of line in /boot/cmdline.txt
+Verify after reboot with 'cat /sys/module/usbhid/parameters/jspoll'
+Seems to cause double button presses in ES with my 8BitDo SFC30, also rarely with the
+RaphNet Neo Geo adapter. Works fine with the Mayflash SS adapter, though
+
+See also:
+https://retropie.org.uk/forum/topic/24207/overclock-usb-controller-polling-rate
+https://unix.stackexchange.com/questions/571137/how-to-change-poll-rate-of-usb-gamepad-drum-controller
+
+
+
+CRT 240p Scale Shader
+
+One-stop, no-tweaking solution for all your 240p CRT output needs
+
+https://github.com/blitzcode/crt-240p-scale-shader
+
+
+
+Configure USB Sound Card
+
+.asoundrc
+---------
+pcm.!default {
+  type asym
+  playback.pcm {
+    type plug
+    slave.pcm "output"
+  }
+  capture.pcm {
+    type plug
+    slave.pcm "input"
+  }
+}
+pcm.output {
+  type hw
+  card 1
+}
+ctl.!default {
+  type hw
+  card 1
+}
+
+card 0 == most likely the build-in audio, card 1 == most likely USB sound card
+
+[~] cat /proc/asound/modules
+ 0 snd_bcm2835
+ 1 snd_usb_audio
+
+Can be permanently configured in /etc/modprobe.d/alsa-base.conf
+options snd_usb_audio index=0
+options snd_bcm2835 index=1
+options snd slots=snd-usb-audio,snd-bcm2835
+
+Configuration Files
+~/.asoundrc
+/usr/share/alsa/alsa.conf
+/etc/asound.conf
+/etc/modprobe.d/alsa-base.conf
+
+Documentation
+https://wiki.archlinux.org/index.php/Advanced_Linux_Sound_Architecture
+https://sudomod.com/forum/viewtopic.php?t=144
+https://retropie.org.uk/docs/Sound-Issues/#using-a-usb-audio-device
+
+
+
+Enable WiFi, Expand SD card FS, time zone, etc.
+sudo raspi-config
+
+
+
+Disable WiFi
+
+To remove SSID/passphrase, edit here:
+/etc/wpa_supplicant/wpa_supplicant.conf
+
+To fully disable WiFi, add 'dtoverlay=disable-wifi' to config.txt
+
+
+
+General Linux setup tasks
+
+# Put in .profile
+export PS1="\[$(tput rev)\][\w]\[$(tput sgr0)\] "
+alias ll='ls -FAlGh'
+alias es=emulationstation
+
+sudo apt-get install tree
+
+wget -O ~/.vimrc http://www.blitzcode.net/files/vimrc
+
+
+
+Force filesystem check on startup
+Add 'fsck.mode=force' to '/boot/cmdline.txt'
+
+
+
+ES Audio Setup (for headphone jack into PI2SCART)
+
+adjust volume with 'alsamixer', can be launched from ES->RetroPie->AUDIO->Mixer
+
+To silence error messages about 'failed to find mixer elements' and such when launching
+games, go into ES Sound Settings and set AUDIO CARD to HW and AUDIO DEVICE to HEADPHONE
+
+
+
+Fix 'locale' warnings / errors that crop up in multiple places
+
+[~] locale
+locale: Cannot set LC_CTYPE to default locale: No such file or directory
+locale: Cannot set LC_ALL to default locale: No such file or directory
+...
+
+1. Use raspi-config to set locale to 'en_US.UTF-8'
+2. https://raspberrypi.stackexchange.com/a/81765
+   Change /etc/default/locale to include these three lines:
+LANG=en_US.UTF-8
+LC_ALL=en_US.UTF-8
+LANGUAGE=en_US.UTF-8
+  
+
+
+Copy relevant BIOS files
+    
+Folder ~/RetroPie/BIOS
+  syscard3.pce  PCE CD
+  disksys.rom   FDS
+  SCPH1001.BIN  PS1
+  bios_CD_U.bin Sega CD
+See each system under (https://retropie.org.uk/docs/PC-Engine/ etc.) for which BIOS files
+are required
+
+Downloads:
+http://emulation.gametechwiki.com/index.php/Emulator_Files
+https://archive.org/search.php?query=retropie+bios
+
+
+
+Neo Geo Universe BIOS
+
+Make sure the neogeo.zip BIOS file is present in ROM folder (~/RetroPie/roms/neogeo)
+Quick Menu->Options->Neo-Geo Mode->Use UNIBIOS bios
+When game boots press ABC (YBA on Retro Pad) at the Universe BIOS Splash screen
+Select region and AES (home) / MVS (arcade) mode
+  Home versions often have additonal content / features / options
+  Region influences text language and blood etc.
+Press ABC (YBA on Retro Pad) + Start for Universe BIOS in-game menu with cheats
+
+Be sure to have Quick Menu->Options->[Dipswitch] Autofire->Off
+Having it on can cause all kinds of input issues
+
+Install latest Universe BIOS into neogeo.zip
+  Download from http://unibios.free.fr/download.html
+  Name ROM file appropiately, i.e. 'uni-bios_4_0.rom'
+  Add to neogeo.zip file
+  FBN core will automatically pick the latest version 
+
+https://retropie.org.uk/docs/Neo-Geo/#bios
+https://retropie.org.uk/docs/lr-fbneo/#neo-geo-unibios
+
+
+
+Wonder Swan
+Need to use RetroPie Setup to install the optional lr-beetle-wswan emulator core
+Note: Use Select button to rotate screen
+
+
+
+ROM Sets
+
+Collection with download links
+http://emulation.gametechwiki.com/index.php/ROM_%26_ISO_Sites
+
+Use wget to download so downloads can be resumed
+Copy large romsets over to the RPi with rsync instead of scp, faster and no filename limit
+
+Arcade ROM Sets (https://retropie.org.uk/docs/Arcade/)
+
+lr-mame2003
+https://archive.org/details/MAME2003_Reference_Set_MAME0.78_ROMs_CHDs_Samples
+(ZIP Archive download had some issues unzipping, but ROMs seemed fine)
+~/RetroPie/roms/mame-libretro/
+
+lr-fbneo
+https://archive.org/details/2020_01_06_fbn
+~/RetroPie/roms/fba/
+
+NeoGeo with FBN
+https://archive.org/details/NeoGeoRomCollectionByGhostware
+~/RetroPie/neogeo/
+
+
+
+Save storage space with the compressed CHD format for CD-ROM images
+
+Several CD based RetroArch cores support MAME's CHD format, providing significant space
+savings over uncompressed CUE/BIN/ISO files.
+
+# Install 'chdman' tool
+sudo apt install -y --no-install-recommends mame-tools
+# Flatten folder hierachy (game1/game1.cue -> game1.cue)
+find . -mindepth 2 -type f -exec mv -i '{}' . ';'
+# Delete empty folders
+find . -type d -exec rm -ri '{}' ';'
+# At this point verify that CUE files reference the correct .bin/.iso files, case sensitive!
+# Compress all disc images in a folder
+for i in *.cue; do chdman createcd -i "$i" -o "${i%.*}.chd"; done
+
+Also see: https://retropie.org.uk/docs/CHD-files/
+
+
+
+Install an ES theme more readable in 240p
+
+sudo ~/RetroPie-Setup/retropie_setup.sh
+Configuration / tools->esthemes->Install
+
+Themes are stored in /etc/emulationstation/themes/. Some themes have options / need to be
+configured, have a look at the .xml and or ReadMe. In ES, press Start, then UI SETTINGS->
+THEME SET to select theme. Alternatively, the default 'Carbon' theme can be made more
+readable by using a better font. Replace
+'/etc/emulationstation/themes/carbon/art/Cabin-Bold.ttf' with an alternative, such as this
+one from the 240p-honey theme:
+https://github.com/PietDAmore/240p-Theme/blob/master/240p%20Honey/_inc/fonts/pixelmix.ttf
+
+
+
+Add 'Last Played' section to ES
+MAIN MENU->GAME COLLECTION SETTINGS->AUTOMATIC GAME COLLECTIONS->LAST PLAYED->[X]
+
+
+
+Setup separate PC-Engine CD and SuperGrafx systems
+
+By default ES groups CD and SG games with the normal PCE games. This is inconsistent since
+the 32X and Sega CD games are not grouped with the Mega Drive.
+
+Simply add the following systems to /etc/emulationstation/es_systems.cfg;
+
+  <system>
+    <name>pcengine</name>
+    <fullname>PC Engine CD-Rom2</fullname>
+    <path>/home/pi/RetroPie/roms/pce-cd</path>
+    <extension>.7z .pce .ccd .chd .cue .zip .7Z .PCE .CCD .CHD .CUE .ZIP</extension>
+    <command>/opt/retropie/supplementary/runcommand/runcommand.sh 0 _SYS_ pcengine %ROM%</command>
+    <platform>pcengine</platform>
+    <theme>pce-cd</theme>
+  </system>
+  <system>
+    <name>pcengine</name>
+    <fullname>SuperGrafx</fullname>
+    <path>/home/pi/RetroPie/roms/supergrafx</path>
+    <extension>.7z .pce .ccd .chd .cue .zip .7Z .PCE .CCD .CHD .CUE .ZIP</extension>
+    <command>/opt/retropie/supplementary/runcommand/runcommand.sh 0 _SYS_ pcengine %ROM%</command>
+    <platform>pcengine</platform>
+    <theme>supergrafx</theme>
+  </system>
+
+
+
+Change emulator per-rom (for instance, SuperGrafx roms need to be launched with lr-beetle-supergrafx)
+Follow 'Press a button to configure' prompt on emulator startup
+Gets stored to /opt/retropie/configs/all/emulators.cfg
+
+
+
+When an emulator freezes
+killall retroarch
+Might need to be done twice, returns to ES afterwards
+
+
+
+Debug failed emulator launch
+
+'cat /dev/shm/runcommand.log' to see the last run command line for launching an emulator
+Run the command line again with an extra '--verbose' option
+
+
+
+Keep RGUI aspect ratio sane when running with unusual resolution and emu aspects
+https://retropie.org.uk/forum/post/190266
+Settings->User Interface->Appearance->Lock Menu Aspect Ratio->Stretch
+
+
+
+Fix unreadable pop-up notifications (Save states, errors, etc.) from RetroArch
+
+Settings->On-Screen Display->On-Screen Notifications->
+  Auto Scale Graphics Widgets->Off
+  Graphics Widgets Scale Override (Windowed)->2.0x
+
+
+
+Set autosave interval
+
+By default RetroArch does not actually write SRAM saves to disk until the core exists.
+Any core / system crash erases all saved progress.
+
+Settings->Saving->SaveRAM Autosave Interval-><seconds>
+
+https://wiki.archlinux.org/index.php/RetroArch#Enabling_SaveRAM_Autosave_Interval
+ 
+
+  
+Latency RetroArch Options
+
+Monitor retroarch core with htop to see if pushing things too hard. Also
+Settings->On Screen Display->On-Screen Notifications->Display Framerate
+to see if it holds steady
+
+Quick Menu->Latency
+---
+Max swapchain images - 2
+Frame Delay - Increase if there's frame time time left, <50% load means ~7ms should be OK, etc.
+Audio Latency - 48ms (seems to work basically everywhere, can try less)
+Run-Ahead - ON (if system can handle it, 1 frame is always safe, more depends on game)
+
+Settings->Video->Threaded Video->Off
+
+Experiment to find best options for each core / game. Sometimes it is worth turning
+threaded video on to get some extra performance which can be spend on run ahead, etc.
+
+More info:
+https://retropie.org.uk/docs/Input-Lag/
+https://docs.libretro.com/guides/latency/
+
+MiSTer Controller Latency Table
+https://docs.google.com/spreadsheets/d/1KlRObr3Be4zLch7Zyqg6qCJzGuhyGmXaOIUrpfncXIM/edit#gid=0
+
+
+
+Monitor SoC temp, CPU/MEM load, system throttling status, CPU frequency, etc.
+
+watch 'uname -a && echo && top -b | head -n 12 && echo && vcgencmd measure_temp && vcgencmd get_throttled && vcgencmd measure_clock arm && { vcgencmd get_config arm_freq && vcgencmd get_config sdram_freq && vcgencmd get_config gpu_freq; } | tr "\n" " " && echo && cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor && vcgencmd hdmi_timings && vcgencmd measure_clock dpi && echo && dmesg -T | tail -n 10 && echo && cat /var/log/syslog | grep -v rngd | tail -n 10 && echo && df -h | head -n 2 && echo && cat /dev/shm/runcommand.info && echo && cat /dev/shm/runcommand.log'
+
+
+
+Setting up Turbo Fire
+
+Relevant settings
+Settings->Input->Turbo Mode->Classic|Single Button
+Settings->Input->Turbo Default Button->...
+Settings->Input->Port N Binds->Turbo->...
+
+The turbo fire options in RetroArch are confusing and undocumented. There are basically
+three different ways of setting up turbo fire:
+
+1. 'Classic' + binding spare button as turbo button
+Press and hold any button(s) you want to turbo fire. Now tap the assigned turbo button.
+Held down buttons will now turbo fire till they are released. After release they revert to
+normal operation. Flexible, but annoying due to having to tap the turbo button again to
+restore turbo fire every time you stop firing.
+
+2. 'Classic' + binding game button as turbo button
+Now the button simultaneously used by the game and as the turbo button will go into turbo
+fire automatically. Downside is this only works for one button and you can no longer hold
+the button for a charge shot etc.
+
+3. 'Single Button'
+Assign an unused button as the turbo button and set the button you want to turbo fire in
+'Turbo Default Button'. When you now hit the turbo button whatever button is assigned as
+default button will now turbo fire without you having to press it at all, but you can
+still hold it. Hit the turbo button again to turn off turbo fire.
+
+There is no option in general to assign a separate turbo fire button an existing button,
+but some cores like the NES one have turbo button assignments.
+
+For Neo Geo games be sure to have Quick Menu->Options->[Dipswitch] Autofire->Off
+Having it on can cause all kinds of input issues
+
+Bonus Tip: In many Cave games you can hold Start to configure turbo fire, otherwise turn
+the Test Mode DIP switch on in the emulator options and configure it there
+
+
+
+Setting a more authentic looking color palette for the NES emulator
+Quick Menu->Options->Color Palette->composite-direct-fbx
+
+
+
+Some sensible global defaults for RetroArch emulator settings
+
+/opt/retropie/configs/all/retroarch.cfg
+
+rgui_aspect_ratio_lock = "3"
+menu_widget_scale_auto = "false"
+menu_widget_scale_factor_windowed = "2.000000"
+menu_show_advanced_settings = "true"
+video_threaded = "false"
+video_max_swapchain_images = "2"
+video_smooth = "true"
+video_scale_integer = "true"
+# 23 = Custom, 22 = Core provided, 21 = 1:1 PAR, 20 = Config, 0 = 4:3
+aspect_ratio_index = "22"
+run_ahead_enabled = "true"
+run_ahead_frames = "1"
+video_frame_delay = "0"
+audio_latency = "48"
+autosave_interval = "180"
+
+
+
+RetroPie config files to edit
+/opt/retropie/configs/all/retroarch.cfg
+/opt/retropie/configs/<system name>/retroarch.cfg
+/etc/emulationstation/es_systems.cfg
+
+
+
+How EmulationStation is autolaunched (can also add one-time display config here)
+/etc/profile.d/10-retropie.sh
+(launched from /etc/profile)
+
+
+
+Configuration Hierarchy
+
+The individual per-system configuration files (/opt/retropie/configs/<system name>/retroarch.cfg)
+include the global one (/opt/retropie/configs/all/retroarch.cfg) at the bottom. In a RA
+config file the first value given to a parameter binds it, so it can't be overridden
+later. Unfortunately, saving the saving the configuration from RGUI
+(Settings->Configuration File->Save Current Configuration) writes all settings to the
+per-system configuration, new values from the global one will no longer be picked up. The
+configuration editor (https://retropie.org.uk/docs/Configuration-Editor/) is more
+selective.
+
+There is also a per-core setting system (vs per-system, note the difference between
+systems as setup by RetroPie/ES and cores, the actual RA emulator cores):
+/opt/retropie/configs/all/retroarch/config/<core name>
+Core overrides (Save Core Override) configurations are stored here
+This is also where per-core shader configuration (.glslp) are stored.
+
+The per-game setting system works by having a .cfg file with the ROM name in the same
+folder, i.e.
+~/RetroPie/roms/nes/Super Mario Bros. (World).nes.cfg
+Per-game settings can also be stored in the core's config folder, i.e.
+/opt/retropie/configs/all/retroarch/config/nes/
+
+Settings->Quick Menu->Options are emulator specific options stored per-rom, they are all
+stored in a single file:
+/opt/retropie/configs/all/retroarch-core-options.cfg
+
+Also see this full guide:
+https://retropie.org.uk/forum/topic/22816/guide-retroarch-system-emulator-core-and-rom-config-files
+
+    
+    
+Settings->Video->Scaling Menu
+
+PAR = Pixel Aspect Ratio
+DAR = Display Aspect Ratio
+
+List of arcade game resolutions:
+https://github.com/crtpi/CRTPi-RGB/blob/master/RGB-to_opt/retropie/configs/all/resolution.ini
+
+Some thoughts on the subject from FirebrandX:
+https://www.youtube.com/watch?v=2owtAwcysQI
+
+
+
+HDMI Timings / Resolution
+
+https://www.raspberrypi.org/documentation/configuration/config-txt/video.md
+
+This allows setting of raw HDMI timing values for a custom mode, selected using hdmi_group=2 and hdmi_mode=87.
+
+hdmi_timings=<h_active_pixels> <h_sync_polarity> <h_front_porch> <h_sync_pulse> <h_back_porch> <v_active_lines> <v_sync_polarity> <v_front_porch> <v_sync_pulse> <v_back_porch> <v_sync_offset_a> <v_sync_offset_b> <pixel_rep> <frame_rate> <interlaced> <pixel_freq> <aspect_ratio>
+
+<h_active_pixels> = horizontal pixels (width)  
+<h_sync_polarity> = invert hsync polarity  
+<h_front_porch>   = horizontal forward padding from DE acitve edge  
+<h_sync_pulse>    = hsync pulse width in pixel clocks  
+<h_back_porch>    = vertical back padding from DE active edge  
+<v_active_lines>  = vertical pixels height (lines)  
+<v_sync_polarity> = invert vsync polarity  
+<v_front_porch>   = vertical forward padding from DE active edge  
+<v_sync_pulse>    = vsync pulse width in pixel clocks  
+<v_back_porch>    = vertical back padding from DE active edge  
+<v_sync_offset_a> = leave at zero  
+<v_sync_offset_b> = leave at zero  
+<pixel_rep>       = leave at zero  
+<frame_rate>      = screen refresh rate in Hz  
+<interlaced>      = leave at zero  
+<pixel_freq>      = clock frequency (width*height*framerate)  
+<aspect_ratio>    = *  
+
+Explanations of pixel clock / timing variables
+https://easymamecab.mameworld.info/html/monitor9.php
+https://github.com/Sir-Ironic/RPi-Hdmi_Timings/blob/master/CRT_Open_Screen.py
+
+Adjust horizontal / vertical shift with timings
+https://www.reddit.com/user/ErantyInt/comments/g3c98h/crtpiproject_presents_adjusting_hv_position_with/
+
+To set after boot outside of config.txt, use vgencmd
+https://www.raspberrypi.org/documentation/raspbian/applications/vcgencmd.md
+Example:
+vcgencmd hdmi_timings 320 1 16 30 34 240 1 2 3 22 0 0 0 60 0 6400000 1
+tvservice -e "DMT 87"
+fbset -depth 8 && fbset -depth 16 -xres 320 -yres 240
+
+Strange bug (config.txt vs vgencmd timings):
+https://www.raspberrypi.org/forums/viewtopic.php?f=29&t=298858
+(Workaround is running on-end RA script once on startup, ignore config.txt settings)
+
+Also see 'fbset' (no official documentation?) & 'tvservice'
+https://www.google.com/search?q=raspberry+pi+fbset+tvservice
+https://www.raspberrypi.org/documentation/configuration/hdmi-config.md
+
+CRT Super Resolution
+
+The idea behind resolutions like 1920x240 is that it allows quality scaling for a range of
+horizontal resolutions used by different systems. Vertical resolution mismatches like 224
+or 192 lines in a 240 output are resolved by centering, but horizontal resolution
+mismatches have to be resolved by stretching / scaling. Stretching 256 to 320 pixels will
+always look bad, but 352/320/256 pixels can be quite easily stretched to 1920 or 2048
+pixels with minimal scaling artifacts, invisible on a typical consumer CRT display. Since
+CRTs do not have a fixed horizontal resolution or any hard upper limit it is possible to
+drive even standard definition TVs with 1920, 2048, 3840 etc. horizontal pixels.
+Unfortunately, this means our output display will have a non-square pixel aspect ratio,
+something RA is not specifically equipped to handle. We'll need to use the 'custom'
+scaling mode and do all of the aspect ratio and centering computation ourselves.
+
+Rpi3B is quite limited in the pixel clocks it can generate:
+https://github.com/raspberrypi/firmware/issues/734
+
+Timings working nicely for me:
+vcgencmd hdmi_timings 320 1 11 30 38 240 1 8 3 16 0 0 0 60 0 6400000 1
+vcgencmd hdmi_timings 1920 1 79  208 241 240 1 6 10 6 0 0 0 60 0 38400000 1
+One basic resolution for ES, another super resolution for games. Porches have been
+adjusted for a centered image on my Sony X5. Depends on the service menu settings, of
+course. Those two timings also have similar width, so if you adjust size for one, it'll be
+correct for the other.
+
+
+
+List of RPi3 supported HDMI timings
+
+From https://github.com/raspberrypi/firmware/issues/734
+
+** 60Hz Timings **
+hdmi_timings 960 1 24 96 120 248 1 3 10 6 0 0 0 60 0 19200000 1
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 60 0 38400000 1
+
+** 50Hz Timings ** Up to 256p
+hdmi_timings 1920 1 48 192 240 302 1 3 10 6 0 0 0 50 0 38400000 1
+hdmi_timings 960 1 24 96 120 302 1 3 10 6 0 0 0 50 0 19200000 1
+
+** 55Hz Timings ** Up to 256p
+hdmi_timings 1888 1 48 184 232 278 1 3 10 6 0 0 0 55 0 38400000 1
+hdmi_timings 944 1 24 88 112 280 1 3 10 6 0 0 0 55 0 19200000 1
+
+** Amiga **
+hdmi_timings 968 1 24 96 120 288 1 10 10 10 0 0 0 50 0 19200000 1
+hdmi_timings 1920 1 140 200 260 256 1 18 10 29 0 0 0 50 0 39400000 1
+
+EMULATIONSTATION
+hdmi_timings 450 1 50 30 85 288 1 10 1 25 0 0 0 60 0 9600000 1
+
+NEOGEO
+hdmi_timings 1920 1 152 247 280 224 1 13 8 19 0 0 0 59.186 0 40610000 1
+
+PCENGINE
+hdmi_timings 1920 1 158 250 286 232 1 4 3 23 0 0 0 59.94 0 41060000 1
+
+PLAYSTATION
+hdmi_timings 1920 1 152 247 280 240 1 1 7 14 0 0 0 60 0 40860000 1
+hdmi_timings 1920 1 132 247 280 288 1 3 3 18 0 0 0 50 0 40240000 1
+
+MEGADRIVE/GENESIS/MASTER SYSTEM
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+hdmi_timings 1920 1 48 192 240 288 1 6 3 16 0 0 0 49.70 0 37340000 1
+
+NES
+hdmi_timings 1920 1 158 200 286 240 1 1 8 13 0 0 0 60.10 0 40380000 1
+hdmi_timings 1920 1 158 200 314 240 1 23 6 43 0 0 0 50.01 0 40450000 1
+
+SNES
+hdmi_timings 1920 1 160 200 286 224 1 9 8 21 0 0 0 60.10 0 40410000 1
+hdmi_timings 1920 1 158 200 314 239 1 25 6 42 0 0 0 50.01 0 40450000 1
+
+AMIGA
+hdmi_timings 1920 1 180 192 334 262 1 14 15 22 0 0 0 50 0 41200000 1
+
+224p x 60Hz
+hdmi_timings 1920 1 152 247 280 224 1 8 7 23 0 0 0 60 0 40860000 1
+
+240p x 60Hz
+hdmi_timings 1920 1 152 247 280 240 1 3 7 12 0 0 0 60 0 40860000 1
+
+216 x 60Hz
+hdmi_timings 1920 1 152 247 280 224 1 8 7 23 0 0 0 60 0 40860000 1
+
+192 x 60Hz
+hdmi_timings 1920 1 152 247 280 224 1 8 7 23 0 0 0 60 0 40860000 1
+
+256p x 55Hz
+hdmi_timings 1920 1 100 320 260 288 1 1 3 1 0 0 0 55 0 41900000 1
+
+254p53.20Hz
+hdmi_timings 1920 1 100 320 260 254 1 1 3 36 0 0 0 53.20 0 40670000 1
+
+224p58.97Hz
+hdmi_timings 1920 1 50 250 250 250 1 8 10 8 0 0 0 58.97 0 38750000 1
+
+240p55.72Hz
+hdmi_timings 1920 1 50 250 250 260 1 4 5 8 0 0 0 55.72 0 38130000 1
+
+From https://github.com/Vykyan/retroTINK-setup/blob/master/opt-retropie-configs-all/runcommand-onstart.sh
+
+# Load Sega Megadrive timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load Sega Genesis timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load Sega 32X timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load Sega CD timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load Sega Master System timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load Sega Game Gear timings
+hdmi_timings 1920 1 48 192 280 288 1 3 10 6 0 0 0 59.92 0 38400000 1
+
+# Load Atari Lynx timings
+hdmi_timings 1920 1 48 192 240 240 1 3 3 16 0 0 0 59.92 0 37680000 1
+
+# Load SNK Neo Geo timings
+hdmi_timings 1920 1 152 250 280 224 1 13 8 19 0 0 0 59.185 0 40660000 1
+
+# Load NEC PC Engine timings
+hdmi_timings 1920 1 152 250 280 240 1 3 3 16 0 0 0 59.94 0 40870000 1
+
+# Load NEC PC Engine timings
+hdmi_timings 1920 1 152 250 280 240 1 3 3 16 0 0 0 59.94 0 40870000 1
+
+# Load NES timings
+hdmi_timings 1920 1 160 200 286 224 1 9 8 21 0 0 0 60.10 0 40410000 1
+
+# Load FDS timings
+hdmi_timings 1920 1 160 200 286 224 1 9 8 21 0 0 0 60.10 0 40410000 1
+
+# Load SNES timings
+hdmi_timings 1920 1 160 200 286 224 1 9 8 21 0 0 0 60.10 0 40410000 1
+
+# Load MSX timings
+hdmi_timings 1920 1 152 250 280 240 1 3 3 16 0 0 0 59.94 0 40870000 1
+
+# Load PSX timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 60 0 38400000 1
+
+# Load Game Boy timings
+hdmi_timings 1920 1 48 192 280 288 1 3 10 6 0 0 0 59.73 0 38400000 1
+
+# Load Game Boy Color timings
+hdmi_timings 1920 1 48 192 280 288 1 3 10 6 0 0 0 59.73 0 38400000 1
+
+# Load Game Boy Advance timings
+hdmi_timings 1920 1 48 192 300 320 1 3 10 6 0 0 0 59.73 0 38400000 1
+
+# Load SNK Neo Geo Pocket timings
+hdmi_timings 1920 1 160 200 228 228 1 9 8 21 0 0 0 60 0 40410000 1
+
+# Load SNK Neo Geo Pocket Color timings
+hdmi_timings 1920 1 160 200 228 228 1 9 8 21 0 0 0 60 0 40410000 1
+
+# Load Atari 2600 timings
+hdmi_timings 1920 1 48 192 200 248 1 3 10 6 0 0 0 59.92 0 38400000 1
+
+# Load Atari 5200 timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 59.92 0 38400000 1
+
+# Load Atari 7800 timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 59.92 0 38400000 1
+
+# Load Bandai Wonderswan timings
+hdmi_timings 1920 1 48 192 280 288 1 3 10 6 0 0 0 59.73 0 38400000 1
+
+# Load Bandai Wonderswan Color timings
+hdmi_timings 1920 1 48 192 280 288 1 3 10 6 0 0 0 59.73 0 38400000 1
+
+# Load Virtual Boy timings
+hdmi_timings 1920 1 160 200 286 224 1 9 8 21 0 0 0 60.10 0 40410000 1
+
+libretro") # Load MAME Generic 320x240 timings
+hdmi_timings 1920 1 152 250 280 240 1 3 3 16 0 0 0 59.94 0 40870000 1
+
+# Load FBAlpha Generic 320x240 timings
+hdmi_timings 1920 1 152 250 280 240 1 3 3 16 0 0 0 59.94 0 40870000 1
+
+# Load Nintendo 64 timings
+hdmi_timings=320 1 15 29 40 240 1 10 14 16 0 0 0 60 0 6400000 1
+
+# Generic 320x240 timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 60 0 38400000 1
+
+# Generic 320x240 timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 60 0 38400000 1
+
+# Load Generic DOS 320x240 timings
+hdmi_timings 1920 1 48 192 240 248 1 3 10 6 0 0 0 60 0 38400000 1
+
+From https://github.com/crtpi/CRTPi-RGB/blob/master/RGB-to_opt/retropie/configs/all/runcommand-onstart.666
+
+hdmi_timings 2048 1 180 202 300 240 1 3 5 14 0 0 0 60 0 42954545
+hdmi_timings 1920 1 152 247 280 240 1 3 7 12 0 0 0 60 0 40860000 1
+hdmi_timings 1920 1 52 208 260 240 1 6 10 6 0 0 0 60 0 38400000 1
+hdmi_timings 1920 1 137 247 295 240 1 3 7 12 0 0 0 60 0 40860000 1
+
+From https://retropie.org.uk/forum/topic/8673/how-to-center-image-of-retroarch-with-pi-outputing-240p-rgb-via-hat-board-gert-666-to-pvm
+
+hdmi_timings 336 1 10 30 34 252 1 25 3 32 0 0 0 50 0 6400000 1
+
+
+
+Script locations to change / restore resolution on a per-emulator or game basis
+
+/opt/retropie/configs/all
+ runcommand-onstart.sh
+ runcommand-onend.sh
+
+Example:
+
+# For Grundig LCD
+#vcgencmd hdmi_timings 320 1 13 30 36 240 1 8 3 16 0 0 0 60 0 6400000 1
+# For Sony X5 CRT
+#vcgencmd hdmi_timings 320 1 11 30 38 240 1 8 3 16 0 0 0 60 0 6400000 1
+# Generic
+vcgencmd hdmi_timings 320 1 16 30 34 240 1 2 3 22 0 0 0 60 0 6400000 1
+tvservice -e "DMT 87"
+fbset -depth 8 && fbset -depth 16 -xres 320 -yres 240
+
+Full-featured solution from CRTPi
+https://github.com/crtpi/CRTPi-RGB/blob/master/RGB-to_opt/retropie/configs/all/runcommand-onstart.666
+
+Script for the RetroTINK Ultimate
+https://github.com/Vykyan/retroTINK-setup/blob/master/opt-retropie-configs-all/runcommand-onstart.sh
+
+Explanation of how to use these scripts for resolution changes
+https://github.com/libretro/libretro-meta/issues/73#issuecomment-290979535
+
+
+
+RGUI (Select+X) Notes
+
+- The initial menu shown is just the Quick Menu, press B for access to all options
+- When changing Settings->Video->Bilinear Filtering the emulator often restarts in a loop, press B to exit this
+- Cycling through a long list of values for a particular setting can be slow, press A to select from a list
+- Do NOT turn on Settings->Config Save On Exit (Google 'retropie config save on exit')
+- Select shows setting explanation
+- Save all settings to /opt/retropie/configs/<system name>/retroarch.cfg
+  Settings->Configuration File->Save Current Configuration
+- Settings->User Interface->Show Advanced Settings->On is requires for some hidden
+  settings to show up
+- https://docs.libretro.com/guides/rgui/
+
+
+
+Backup various system and config files in case they get overwritten, mangled etc.
+
+scp -r pi@retropie:RetroPie-Setup .
+scp -r pi@retropie:RetroPie/splashscreens .
+scp -r pi@retropie:RetroPie/retropiemenu .
+scp -r pi@retropie:/etc .
+scp -r pi@retropie:/opt/retropie .
+
+
+
+Official PI2SCART links
+http://pi2jamma.info/download
+https://github.com/arcadeforge/RetroPieRGB
+http://pi2jamma.info/pi2scart
+http://strike-devices.net/pi2scart/retropie-or-pi2scart
+https://circuit-board.de/forum/index.php/Thread/23325-PI2SCART/
+
+
+
+CRTPi Project links
+https://github.com/crtpi
+https://github.com/crtpi/CRTPi-RGB/
+https://www.reddit.com/user/ErantyInt/comments/giih2z/crtpirgb_v30_buster_busts_loose_redump51220
+https://www.reddit.com/user/ErantyInt/comments/huofyx/crtpiproject_v31_rgb_rgbvertical_rca_even_more/
+https://www.reddit.com/user/ErantyInt/comments/g3c98h/crtpiproject_presents_adjusting_hv_position_with/
+https://www.reddit.com/user/ErantyInt/comments/gqz3qo/crtpiproject_project_image_megathread/
+https://www.reddit.com/user/ErantyInt/
+
